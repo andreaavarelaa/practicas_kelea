@@ -1,0 +1,28 @@
+import scrapy
+
+class BOESpider(scrapy.Spider):
+    name = "boe"
+
+    # start_urls = ["https://boe.es/rss/boe.php?s=1"]
+    # start_urls = ["https://boe.es"]
+    start_urls = ["https://boe.es/boe/dias/2025/09/10/"]
+
+    def parse(self, response):
+        # for item in response.css("item"):
+        #     texto = item.css("title::text").get()
+        #     url = item.css("link::text").get()
+        #     fecha = item.css("pubDate::text").get()
+        #     id = item.css("guid::text").get()
+
+        #     yield {
+        #         "id": id,
+        #         "fecha": fecha,
+        #         "url": url,
+        #         "texto_completo_boe": texto,
+        #     }
+
+        # for a in response.css("a"):
+        #     i = 0
+        #     print(a)
+        #     i+=1
+        #     print(i)
