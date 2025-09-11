@@ -5,8 +5,11 @@
 
 import scrapy
 
-
 class BoeItem(scrapy.Item):
-    # define the fields for your item here like:
-    # name = scrapy.Field()
+    # titulo = scrapy.Field()
+    # url = scrapy.Field()
+    # fecha = scrapy.Field()
+    # emisor = scrapy.Field()
+    # categoria = scrapy.Field()
+    # contenido = scrapy.Field()
     pass

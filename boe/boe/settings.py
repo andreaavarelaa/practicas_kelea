@@ -14,7 +14,6 @@ NEWSPIDER_MODULE = "boe.spiders"
 
 ADDONS = {}
 
-
 # Crawl responsibly by identifying yourself (and your website) on the user-agent
 #USER_AGENT = "boe (+http://www.yourdomain.com)"
 
