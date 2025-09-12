@@ -6,6 +6,11 @@ class BOESpider(scrapy.Spider):
 
     def parse(self, response):
         secciones = ["I. Disposiciones generales", "III. Otras disposiciones"]
+        departamenta = ["MINISTERIO DE TRABAJO Y ECONOMÍA SOCIAL","MINISTERIO DE INCLUSIÓN, SEGURIDAD SOCIAL Y MIGRACIONES", "MINISTERIO DE HACIENDA", "MINISTERIO DE ECONOMÍA, COMERCIO Y EMPRESA",
+                       "MINISTERIO DE INDUSTRIA Y TURISMO", "MINISTERIO DE DERECHOS SOCIALES, COMSUMO Y AGENDA 2030", "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO."
+                       "MINISTERIO DE SANIDAD", "MINISTERIO DE TRANSPORTES Y MOVILIDAD SOSTENIBLE", "MINISTERIO PARA LA TRANSFORMACIÓN DIGITAL Y DE LA FUNCIÓN PÚBLICA", "BANCO DE ESPAÑA"]
+
+
 
         for h3 in response.css("h3"):
             topic = h3.xpath("string()").get().strip()
@@ -39,7 +44,7 @@ class BOESpider(scrapy.Spider):
 
                 for bloque in bloques:
                     yield {
-                        "seccion": titulo,
+                        "seccion": topic,
                         "departamento": bloque["departamento"],
                         "topic": bloque["topic"],
                         "texto": bloque["texto"].strip()
