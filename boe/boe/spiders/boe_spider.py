@@ -6,11 +6,9 @@ class BOESpider(scrapy.Spider):
 
     def parse(self, response):
         secciones = ["I. Disposiciones generales", "III. Otras disposiciones"]
-        departamenta = ["MINISTERIO DE TRABAJO Y ECONOMÍA SOCIAL","MINISTERIO DE INCLUSIÓN, SEGURIDAD SOCIAL Y MIGRACIONES", "MINISTERIO DE HACIENDA", "MINISTERIO DE ECONOMÍA, COMERCIO Y EMPRESA",
-                       "MINISTERIO DE INDUSTRIA Y TURISMO", "MINISTERIO DE DERECHOS SOCIALES, COMSUMO Y AGENDA 2030", "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO."
+        departments = ["MINISTERIO DE TRABAJO Y ECONOMÍA SOCIAL","MINISTERIO DE INCLUSIÓN, SEGURIDAD SOCIAL Y MIGRACIONES", "MINISTERIO DE HACIENDA", "MINISTERIO DE ECONOMÍA, COMERCIO Y EMPRESA",
+                       "MINISTERIO DE INDUSTRIA Y TURISMO", "MINISTERIO DE DERECHOS SOCIALES, CONSUMO Y AGENDA 2030", "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO"
                        "MINISTERIO DE SANIDAD", "MINISTERIO DE TRANSPORTES Y MOVILIDAD SOSTENIBLE", "MINISTERIO PARA LA TRANSFORMACIÓN DIGITAL Y DE LA FUNCIÓN PÚBLICA", "BANCO DE ESPAÑA"]
-
-
 
         for h3 in response.css("h3"):
             topic = h3.xpath("string()").get().strip()
@@ -24,11 +22,10 @@ class BOESpider(scrapy.Spider):
                 bloques = []
                 current_bloque ={}
                 for element in contenido:
-                    tag = element.root.tag
                     texto = element.xpath("string()").get().strip()
 
-                    if tag == "h4":
-                        if current_bloque and current_bloque["departamento"] in self.departments:
+                    if element.root.tag == "h4":
+                        if current_bloque and texto in self.departments:
                             bloques.append(current_bloque)
                         current_bloque = {
                             "departamento": texto,
