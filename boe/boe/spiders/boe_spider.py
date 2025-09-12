@@ -7,7 +7,7 @@ class BOESpider(scrapy.Spider):
     def parse(self, response):
         secciones = ["I. Disposiciones generales", "III. Otras disposiciones"]
         departments = ["MINISTERIO DE TRABAJO Y ECONOMÍA SOCIAL","MINISTERIO DE INCLUSIÓN, SEGURIDAD SOCIAL Y MIGRACIONES", "MINISTERIO DE HACIENDA", "MINISTERIO DE ECONOMÍA, COMERCIO Y EMPRESA",
-                       "MINISTERIO DE INDUSTRIA Y TURISMO", "MINISTERIO DE DERECHOS SOCIALES, CONSUMO Y AGENDA 2030", "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO"
+                       "MINISTERIO DE INDUSTRIA Y TURISMO", "MINISTERIO DE DERECHOS SOCIALES, CONSUMO Y AGENDA 2030", "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO",
                        "MINISTERIO DE SANIDAD", "MINISTERIO DE TRANSPORTES Y MOVILIDAD SOSTENIBLE", "MINISTERIO PARA LA TRANSFORMACIÓN DIGITAL Y DE LA FUNCIÓN PÚBLICA", "BANCO DE ESPAÑA"]
 
         for h3 in response.css("h3"):
@@ -21,23 +21,27 @@ class BOESpider(scrapy.Spider):
 
                 bloques = []
                 current_bloque ={}
+
                 for element in contenido:
                     texto = element.xpath("string()").get().strip()
 
                     if element.root.tag == "h4":
-                        if current_bloque and texto in self.departments:
+                        if current_bloque and current_bloque["departamento"] in departments:
                             bloques.append(current_bloque)
+
                         current_bloque = {
                             "departamento": texto,
                             "topic": None,
                             "texto": ""
                         }
+
                     elif current_bloque and current_bloque["topic"] is None:
                         current_bloque["topic"] = texto
+                        
                     elif current_bloque:
                         current_bloque["texto"] += texto + "\n"
 
-                if current_bloque and current_bloque["departamento"] in self.department:
+                if current_bloque and current_bloque["departamento"] in departments:
                     bloques.append(current_bloque)
 
                 for bloque in bloques:
