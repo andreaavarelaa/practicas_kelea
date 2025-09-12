@@ -19,9 +19,10 @@ class BOESpider(scrapy.Spider):
                 bloques = []
                 current_bloque ={}
                 for element in contenido:
+                    tag = element.root.tag
                     texto = element.xpath("string()").get().strip()
 
-                    if texto.isupper() and len(texto) < 100:
+                    if tag == "h4":
                         if current_bloque:
                             bloques.append(current_bloque)
                         current_bloque = {
@@ -39,7 +40,7 @@ class BOESpider(scrapy.Spider):
 
                 for bloque in bloques:
                     yield {
-                        "seccion": titulo,
+                        "seccion": topic,
                         "departamento": bloque["departamento"],
                         "topic": bloque["topic"],
                         "texto": bloque["texto"].strip()
