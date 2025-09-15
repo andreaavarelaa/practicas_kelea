@@ -5,18 +5,23 @@
 
 
 # useful for handling different item types with a single interface
+import os
 import pymysql
+
 from itemadapter import ItemAdapter
+from dotenv import load_dotenv
+
+load_dotenv()
 
 class BoePipeline:
 
     def open_spider(self, spider):
         self.connection = pymysql.connect(
-            host='mysql-13395d62-proyecto-inteliencia-regulatoria-fbb1.l.aivencloud.com',
-            port=19368,
-            user='andreavf',
-            password='AVNS_sCEImh9nttN7Vlws-YD',
-            database='proyecto-inteligencia-regulatoria',
+            host=DB_HOST,
+            port=DB_PORT,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            database=DB_NAME,
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
