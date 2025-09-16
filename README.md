@@ -1,4 +1,4 @@
-# BPE Scraper
+# BOE Scraper
 
 Scraper basado en [Scrapy](https://scrapy.org) para recolectar y almacenar disposiciones normativas publicadas en el **Boletín Oficial del Estado (BOE)**.
 
