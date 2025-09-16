@@ -1,47 +1,26 @@
 #EJECUCIÓN --> scrapy crawl boe -a start_date=2025-09-01 -a end_date=2025-09-11 -O resultados_1.jsonl -s LOG_LEVEL=INFO
 # boe/spiders/boe_spider.py
-import re
+
 import datetime as dt
 import scrapy
 
+from boe.filters import SECTIONS_WHITELIST, DEPARTMENTS_WHITELIST
+from boe.utils import DISPO_PREFIX, CODE_RE, HREF_RE, extract_dispositions
+
 class BOESpider(scrapy.Spider):
     name = "boe"
-    custom_settings = {
-        "ROBOTSTXT_OBEY": True,
-        "DOWNLOAD_DELAY": 1,
-        "CONCURRENT_REQUESTS_PER_DOMAIN": 1,
-        "FEED_EXPORT_ENCODING": "utf-8",
-    }
-
     handle_httpstatus_list = [404]
 
     def __init__(self, start_date=None, end_date=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not start_date or not end_date:
             raise ValueError("Debes pasar -a start_date=YYYY-MM-DD y -a end_date=YYYY-MM-DD")
+
         self.start_date = dt.date.fromisoformat(start_date)
         self.end_date = dt.date.fromisoformat(end_date)
+
         if self.end_date < self.start_date:
             raise ValueError("end_date debe ser >= start_date")
-
-        # MISMAS LISTAS QUE TU ORIGINAL (puedes poner a None para no filtrar)
-        self.sections_whitelist = {
-            "I. Disposiciones generales",
-            "III. Otras disposiciones",
-        }
-        self.departments_whitelist = {
-            "MINISTERIO DE TRABAJO Y ECONOMÍA SOCIAL",
-            "MINISTERIO DE INCLUSIÓN, SEGURIDAD SOCIAL Y MIGRACIONES",
-            "MINISTERIO DE HACIENDA",
-            "MINISTERIO DE ECONOMÍA, COMERCIO Y EMPRESA",
-            "MINISTERIO DE INDUSTRIA Y TURISMO",
-            "MINISTERIO DE DERECHOS SOCIALES, CONSUMO Y AGENDA 2030",
-            "MINISTERIO PARA LA TRANSICIÓN ECOLÓGICA Y EL RETO DEMOGRÁFICO",
-            "MINISTERIO DE SANIDAD",
-            "MINISTERIO DE TRANSPORTES Y MOVILIDAD SOSTENIBLE",
-            "MINISTERIO PARA LA TRANSFORMACIÓN DIGITAL Y DE LA FUNCIÓN PÚBLICA",
-            "BANCO DE ESPAÑA",
-        }
 
     # Igual que tu original: start_requests sin async
     def start_requests(self):
@@ -58,14 +37,10 @@ class BOESpider(scrapy.Spider):
             self.logger.info("No hay BOE el %s (404).", date.isoformat())
             return
 
-        dispo_prefix = re.compile(r"^(Resolución|Real Decreto(?:-ley| Legislativo)?|Orden|Acuerdo|Anuncio|Circular|Instrucción)\b")
-        code_re = re.compile(r"\bBOE-[A-Z]-\d{4}-\d{4,6}\b")
-        href_re = re.compile(r'href="([^"]*pdfs/BOE-[A-Z]-\d{4}-\d{4,6}\.pdf)"')
-
         # h2/h3 = títulos de sección
         for sec_node in response.xpath("//h2|//h3"):
             section_title = sec_node.xpath("normalize-space(string())").get() or ""
-            if self.sections_whitelist and section_title not in self.sections_whitelist:
+            if SECTIONS_WHITELIST and section_title not in SECTIONS_WHITELIST:
                 continue
 
             current_dept = None
@@ -90,11 +65,11 @@ class BOESpider(scrapy.Spider):
                     continue
 
                 # Filtro por departamento
-                if self.departments_whitelist and current_dept not in self.departments_whitelist:
+                if DEPARTMENTS_WHITELIST and current_dept not in DEPARTMENTS_WHITELIST:
                     continue
 
                 # ¿Es una línea de topic/epígrafe (no empieza por disposición)?
-                if text and not dispo_prefix.match(text) and not text.startswith("PDF"):
+                if text and not DISPO_PREFIX.match(text) and not text.startswith("PDF"):
                     # Heurística: topics suelen ser frases cortas (pero dejamos margen).
                     if len(text) <= 160:
                         current_topic = text.strip()
@@ -102,17 +77,14 @@ class BOESpider(scrapy.Spider):
                     # Si es muy largo, probablemente es cuerpo/introducción; seguimos sin cambiar topic.
 
                 # ¿Este nodo contiene una o varias disposiciones?
-                if dispo_prefix.match(text):
+                if DISPO_PREFIX.match(text):
                     # En este nodo extraemos títulos (puede haber varios)
-                    chunks = re.findall(
-                        r"(?:Resolución|Real Decreto(?:-ley| Legislativo)?|Orden|Acuerdo|Anuncio|Circular|Instrucción)[\s\S]*?(?=PDF\s*\(|$)",
-                        text
-                    )
+                    chunks = extract_dispositions(text)
 
                     # Códigos/hrefs del propio nodo (mismo orden visual)
                     html = el.get()
-                    codes = code_re.findall(html)
-                    hrefs = href_re.findall(html)
+                    codes = CODE_RE.findall(html)
+                    hrefs = HREF_RE.findall(html)
 
                     # Si hay desalineación, lo anotamos en debug, pero seguimos.
                     if len(codes) != len(chunks):
@@ -139,4 +111,3 @@ class BOESpider(scrapy.Spider):
                             "pdf_url": pdf_url,
                         }
                 # Si no es ni topic ni disposición, lo ignoramos (suele ser texto de relleno)
-
