@@ -1,17 +1,14 @@
-# Define your item pipelines here
-#
-# Don't forget to add your pipeline to the ITEM_PIPELINES setting
-# See: https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-
-
-# useful for handling different item types with a single interface
 import os
 import pymysql
 
 from itemadapter import ItemAdapter
 from dotenv import load_dotenv
+from scrapy.exceptions import DropItem
 
 load_dotenv()
+
+def _clean(s):
+    return " ".join(str(s).split()) if s is not None else None
 
 class BOEPipeline:
 
@@ -35,28 +32,49 @@ class BOEPipeline:
     def process_item(self, item, spider):
         adapter = ItemAdapter(item)
 
+        # --- Validación mínima ---
+        boe_code = _clean(adapter.get("boe_code"))
+        date     = _clean(adapter.get("date"))
+        preamble = _clean(adapter.get("preamble"))
+
+        if not boe_code or not date or not preamble:
+            raise DropItem(f"Item incompleto: boe_code={boe_code}, date={date}, preamble={preamble}")
+
+        # --- Limpieza del resto ---
+        section    = _clean(adapter.get("section"))
+        department = _clean(adapter.get("department"))
+        topic      = _clean(adapter.get("topic"))
+        pdf_url    = _clean(adapter.get("pdf_url"))
+        url        = _clean(adapter.get("url"))
+        source     = _clean(adapter.get("source"))
+
+        # --- SQL ---
         sql = """
             INSERT INTO boe (
-                boe_code, date, section, department, topic, title, pdf_url
+                boe_code, date, section, department, topic, preamble, url, pdf_url, source
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 date = VALUES(date),
                 section = VALUES(section),
                 department = VALUES(department),
                 topic = VALUES(topic),
-                title = VALUES(title),
-                pdf_url = VALUES(pdf_url)
+                preamble = VALUES(preamble),
+                url = VALUES(url),
+                pdf_url = VALUES(pdf_url),
+                source = VALUES(source)
         """
 
         values = (
-            adapter.get("boe_code"),
-            adapter.get("date"),
-            adapter.get("section"),
-            adapter.get("department"),
-            adapter.get("topic"),
-            adapter.get("title"),
-            adapter.get("pdf_url"),
+            boe_code,
+            date,
+            section,
+            department,
+            topic,
+            preamble,
+            url,
+            pdf_url,
+            source
         )
 
         self.cursor.execute(sql, values)
