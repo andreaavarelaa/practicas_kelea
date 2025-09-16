@@ -19,10 +19,6 @@ RETRY_HTTP_CODES = [429, 500, 502, 503, 504]
 # Guardar en UTF-8 (para que los acentos salgan bien)
 FEED_EXPORT_ENCODING = "utf-8"
 
-
-
-
-
 # from datetime import datetime
 # import os
 
@@ -58,10 +54,10 @@ FEED_EXPORT_ENCODING = "utf-8"
 #     "User-Agent": USER_AGENT,
 # }
 
-# # Pipeline para BD (inserta/actualiza)
-# ITEM_PIPELINES = {
-#     "boe.pipelines.BoePipeline": 300,
-# }
+# Pipeline para BD (inserta/actualiza)
+ITEM_PIPELINES = {
+    "boe.pipelines.BOEPipeline": 300,
+}
 
 # # Exportación a archivo (snapshot de lo scrapeado)
 # FEED_EXPORT_ENCODING = "utf-8"
