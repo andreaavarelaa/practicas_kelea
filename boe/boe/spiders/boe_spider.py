@@ -1,6 +1,3 @@
-#EJECUCIÓN --> scrapy crawl boe -a start_date=2025-09-01 -a end_date=2025-09-11 -O resultados_1.jsonl -s LOG_LEVEL=INFO
-# boe/spiders/boe_spider.py
-
 import datetime as dt
 import scrapy
 
