@@ -1,4 +1,5 @@
 import scrapy
+
 class BOEItem(scrapy.Item):
     boe_code = scrapy.Field()       # ID oficial BOE (ej: BOE-A-2025-12345)
     date = scrapy.Field()           # Fecha publicación (YYYY-MM-DD)
@@ -10,15 +11,3 @@ class BOEItem(scrapy.Item):
     pdf_url = scrapy.Field()        # URL al PDF oficial
     # text = scrapy.Field()         # Texto completo (opcional)
     source = scrapy.Field()         # Fuente (ej: "BOE", "DOG", etc..)
-
-
-# # boe/items.py
-# import scrapy
-# class BoeItem(scrapy.Item):
-#     boe_code = scrapy.Field()
-#     date = scrapy.Field()
-#     section = scrapy.Field()
-#     department = scrapy.Field()
-#     topic = scrapy.Field()
-#     title = scrapy.Field()
-#     pdf_url = scrapy.Field()
