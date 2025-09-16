@@ -1,5 +1,23 @@
-ASEGURARSE QUE ESTAMOS DENTRO DE LA CARPETA 'boe' ANTES DE EJECUTAR EL COMANDO POR TERMINAL
+# BPE Scraper
 
-scrapy crawl boe -a start_date=2025-09-01 -a end_date=2025-09-11 -O resultados.jsonl -s LOG_LEVEL=INFO
+Scraper basado en [Scrapy](https://scrapy.org) para recolectar y almacenar disposiciones normativas publicadas en el **Boletín Oficial del Estado (BOE)**.
 
-(la parte de '-O resultados.jsonl -s LOG_LEVEL=INFO' la podemos omitir, ahora los datos pasan directamente a la BBDD)
+Este proyecto permite automatizar la extracción de datos estructurados del BOE, filtrando por secciones y departamentos relevantes para el sector de retail, y almacenando la información directamente en una base de datos MySQL.
+
+---
+
+## Requisitos
+
+- Python 3.8+
+- MySQL
+- pip (Python package manager)
+
+---
+
+## Utilización
+
+Es importante asegurarse de estar dentro de la carpeta 'boe' antes de de ejecutar el comando para su correcto funcionamiento.
+
+Para hacer el scraping, debemos ejecutar el siguiente comando en la terminal:
+
+`scrapy crawl boe -a start_date=YYYY-MM-DD -a end_date=YYYY-MM-DD`
