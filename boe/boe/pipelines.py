@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-class BoePipeline:
+class BOEPipeline:
 
     def open_spider(self, spider):
         self.connection = pymysql.connect(
