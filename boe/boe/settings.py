@@ -1,86 +1,86 @@
-# Scrapy settings for boe project
-#
-# For simplicity, this file contains only settings considered important or
-# commonly used. You can find more settings consulting the documentation:
-#
-#     https://docs.scrapy.org/en/latest/topics/settings.html
-#     https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-#     https://docs.scrapy.org/en/latest/topics/spider-middleware.html
-
 BOT_NAME = "boe"
-
 SPIDER_MODULES = ["boe.spiders"]
 NEWSPIDER_MODULE = "boe.spiders"
 
-ADDONS = {}
-
-# Crawl responsibly by identifying yourself (and your website) on the user-agent
-#USER_AGENT = "boe (+http://www.yourdomain.com)"
-
-# Obey robots.txt rules
+# Respetar normas del sitio (por ética y evitar bloqueos)
 ROBOTSTXT_OBEY = True
 
-# Concurrency and throttling settings
-#CONCURRENT_REQUESTS = 16
-CONCURRENT_REQUESTS_PER_DOMAIN = 1
-DOWNLOAD_DELAY = 1
+# Decir quién eres (como dejar tu tarjeta de visita)
+USER_AGENT = "boe-scraper/1.0 (+tu-correo@ejemplo.com)"
 
-# Disable cookies (enabled by default)
-#COOKIES_ENABLED = False
+# No ir demasiado rápido (0.25 segundos entre peticiones)
+DOWNLOAD_DELAY = 0.25
 
-# Disable Telnet Console (enabled by default)
-#TELNETCONSOLE_ENABLED = False
+# Reintentar si hay errores puntuales en la web
+RETRY_ENABLED = True
+RETRY_TIMES = 3
+RETRY_HTTP_CODES = [429, 500, 502, 503, 504]
 
-# Override the default request headers:
-#DEFAULT_REQUEST_HEADERS = {
-#    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-#    "Accept-Language": "en",
-#}
-
-# Enable or disable spider middlewares
-# See https://docs.scrapy.org/en/latest/topics/spider-middleware.html
-#SPIDER_MIDDLEWARES = {
-#    "boe.middlewares.BoeSpiderMiddleware": 543,
-#}
-
-# Enable or disable downloader middlewares
-# See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html
-#DOWNLOADER_MIDDLEWARES = {
-#    "boe.middlewares.BoeDownloaderMiddleware": 543,
-#}
-
-# Enable or disable extensions
-# See https://docs.scrapy.org/en/latest/topics/extensions.html
-#EXTENSIONS = {
-#    "scrapy.extensions.telnet.TelnetConsole": None,
-#}
-
-# Configure item pipelines
-# See https://docs.scrapy.org/en/latest/topics/item-pipeline.html
-ITEM_PIPELINES = {
-   "boe.pipelines.BoePipeline": 300,
-}
-
-# Enable and configure the AutoThrottle extension (disabled by default)
-# See https://docs.scrapy.org/en/latest/topics/autothrottle.html
-#AUTOTHROTTLE_ENABLED = True
-# The initial download delay
-#AUTOTHROTTLE_START_DELAY = 5
-# The maximum download delay to be set in case of high latencies
-#AUTOTHROTTLE_MAX_DELAY = 60
-# The average number of requests Scrapy should be sending in parallel to
-# each remote server
-#AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
-# Enable showing throttling stats for every response received:
-#AUTOTHROTTLE_DEBUG = False
-
-# Enable and configure HTTP caching (disabled by default)
-# See https://docs.scrapy.org/en/latest/topics/downloader-middleware.html#httpcache-middleware-settings
-#HTTPCACHE_ENABLED = True
-#HTTPCACHE_EXPIRATION_SECS = 0
-#HTTPCACHE_DIR = "httpcache"
-#HTTPCACHE_IGNORE_HTTP_CODES = []
-#HTTPCACHE_STORAGE = "scrapy.extensions.httpcache.FilesystemCacheStorage"
-
-# Set settings whose default value is deprecated to a future-proof value
+# Guardar en UTF-8 (para que los acentos salgan bien)
 FEED_EXPORT_ENCODING = "utf-8"
+
+
+
+
+
+# from datetime import datetime
+# import os
+
+# BOT_NAME = "boe"
+# SPIDER_MODULES = ["boe.spiders"]
+# NEWSPIDER_MODULE = "boe.spiders"
+
+# # Respeta robots.txt y usa un User-Agent identificable
+# ROBOTSTXT_OBEY = True
+# USER_AGENT = os.getenv("SCRAPY_USER_AGENT", f"{BOT_NAME}/1.0 (+contacto: tu-correo@ejemplo.com)")
+
+# # Ritmo razonable (el spider puede sobreescribir con custom_settings)
+# CONCURRENT_REQUESTS = 8
+# CONCURRENT_REQUESTS_PER_DOMAIN = 4
+# DOWNLOAD_DELAY = 0.25
+
+# # Reintentos y timeout básicos (más estabilidad)
+# RETRY_ENABLED = True
+# RETRY_TIMES = 3
+# DOWNLOAD_TIMEOUT = 30
+# COOKIES_ENABLED = False
+
+# # AutoThrottle: que Scrapy se autorregule según latencia
+# AUTOTHROTTLE_ENABLED = True
+# AUTOTHROTTLE_START_DELAY = 0.5
+# AUTOTHROTTLE_MAX_DELAY = 5
+# AUTOTHROTTLE_TARGET_CONCURRENCY = 1.0
+
+# # Cabeceras por defecto (preferimos español)
+# DEFAULT_REQUEST_HEADERS = {
+#     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+#     "Accept-Language": "es-ES,es;q=0.9",
+#     "User-Agent": USER_AGENT,
+# }
+
+# # Pipeline para BD (inserta/actualiza)
+# ITEM_PIPELINES = {
+#     "boe.pipelines.BoePipeline": 300,
+# }
+
+# # Exportación a archivo (snapshot de lo scrapeado)
+# FEED_EXPORT_ENCODING = "utf-8"
+# EXPORTS_DIR = os.getenv("SCRAPY_EXPORTS_DIR", "exports")
+# os.makedirs(EXPORTS_DIR, exist_ok=True)
+# FEEDS = {
+#     os.path.join(EXPORTS_DIR, f"boe_{datetime.now():%Y%m%d_%H%M%S}.jsonl"): {
+#         "format": "jsonlines",
+#         "encoding": "utf-8",
+#         "overwrite": True,
+#         "item_export_kwargs": {"ensure_ascii": False},
+#     }
+# }
+
+# # Logging a archivo por job
+# LOG_LEVEL = os.getenv("SCRAPY_LOG_LEVEL", "INFO")
+# LOG_FILE = os.path.join(EXPORTS_DIR, f"scrapy_{datetime.now():%Y%m%d_%H%M%S}.log")
+
+# # Cache HTTP solo en desarrollo (desactiva con: SCRAPY_HTTPCACHE_ENABLED=0)
+# HTTPCACHE_ENABLED = bool(int(os.getenv("SCRAPY_HTTPCACHE_ENABLED", "1")))
+# HTTPCACHE_DIR = "httpcache"
+# HTTPCACHE_EXPIRATION_SECS = 0
