@@ -1,3 +1,24 @@
+"""
+pipelines.py
+------------
+
+Pipeline de Scrapy encargado de guardar en la base de datos MySQL
+los items que se extraen del BOE.
+
+Flujo de trabajo:
+1. Cuando el spider arranca (`open_spider`), se abre la conexión con MySQL.
+2. Cada item pasa por `process_item`, donde:
+   - Se limpian y validan todos los campos.
+   - Si falta alguno, se descarta con `DropItem`.
+   - Si está completo, se inserta en la tabla `boe_v2`. 
+     Si ya existe (mismo `boe_code`), se actualiza.
+3. Cuando el spider termina (`close_spider`), se hace `commit` y se cierra la conexión.
+
+Requisitos:
+- Archivo `.env` con las variables:
+  DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
+"""
+
 import os
 import pymysql
 
@@ -5,14 +26,33 @@ from itemadapter import ItemAdapter
 from dotenv import load_dotenv
 from scrapy.exceptions import DropItem
 
+# Cargar variables de entorno (.env) con las credenciales de la BD
 load_dotenv()
 
+
 def _clean(s):
+    """
+    Normaliza strings eliminando espacios repetidos y caracteres invisibles.
+
+    Args:
+        s (str | None): Texto a limpiar.
+
+    Returns:
+        str | None: Texto limpio o None si estaba vacío.
+    """
     return " ".join(str(s).split()) if s is not None else None
 
+
 class BOEPipeline:
+    """
+    Pipeline para insertar ítems del BOE en MySQL.
+    """
 
     def open_spider(self, spider):
+        """
+        Se ejecuta al abrir el spider.
+        Establece la conexión a la base de datos usando las variables de entorno.
+        """
         self.connection = pymysql.connect(
             host=os.getenv('DB_HOST'),
             port=int(os.getenv('DB_PORT')),
@@ -25,32 +65,55 @@ class BOEPipeline:
         self.cursor = self.connection.cursor()
         print("Conectando a base de datos:", os.getenv('DB_NAME'))
 
-
     def close_spider(self, spider):
+        """
+        Se ejecuta al cerrar el spider.
+        Confirma los cambios y cierra la conexión.
+        """
         self.connection.commit()
         self.cursor.close()
         self.connection.close()
 
     def process_item(self, item, spider):
+        """
+        Procesa cada item:
+        - Limpia y valida todos los campos.
+        - Descarta el item si falta alguno.
+        - Inserta en la tabla boe_v2 (o actualiza si ya existía).
+
+        Args:
+            item (scrapy.Item): Item extraído por el spider.
+            spider (scrapy.Spider): Instancia del spider que emitió el item.
+
+        Returns:
+            scrapy.Item: El item procesado (si se insertó con éxito).
+        """
         adapter = ItemAdapter(item)
 
-        # --- Validación mínima ---
-        boe_code = _clean(adapter.get("boe_code"))
-        date     = _clean(adapter.get("date"))
-        preamble = _clean(adapter.get("preamble"))
+        # Validación y limpieza 
+        campos = {}
+        faltan = []
+        for field in adapter.field_names():
+            valor = _clean(adapter.get(field))
+            campos[field] = valor
+            if not valor:
+                faltan.append(field)
 
-        if not boe_code or not date or not preamble:
-            raise DropItem(f"Item incompleto: boe_code={boe_code}, date={date}, preamble={preamble}")
+        if faltan:
+            raise DropItem(f"Item incompleto. Faltan: {faltan}")
 
-        # --- Limpieza del resto ---
-        section    = _clean(adapter.get("section"))
-        department = _clean(adapter.get("department"))
-        topic      = _clean(adapter.get("topic"))
-        pdf_url    = _clean(adapter.get("pdf_url"))
-        url        = _clean(adapter.get("url"))
-        source     = _clean(adapter.get("source"))
+        # Variables con los valores limpios
+        boe_code   = campos["boe_code"]
+        date       = campos["date"]
+        section    = campos["section"]
+        department = campos["department"]
+        topic      = campos["topic"]
+        preamble   = campos["preamble"]
+        url        = campos["url"]
+        pdf_url    = campos["pdf_url"]
+        source     = campos["source"]
 
-        # --- SQL ---
+        # SQL: inserta o actualiza si ya existe 
         sql = """
             INSERT INTO boe_v2 (
                 boe_code, date, section, department, topic, preamble, url, pdf_url, source
