@@ -23,6 +23,8 @@ class BOEPipeline:
             cursorclass=pymysql.cursors.DictCursor
         )
         self.cursor = self.connection.cursor()
+        print("Conectando a base de datos:", os.getenv('DB_NAME'))
+
 
     def close_spider(self, spider):
         self.connection.commit()
@@ -50,7 +52,7 @@ class BOEPipeline:
 
         # --- SQL ---
         sql = """
-            INSERT INTO boe (
+            INSERT INTO boe_v2 (
                 boe_code, date, section, department, topic, preamble, url, pdf_url, source
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)

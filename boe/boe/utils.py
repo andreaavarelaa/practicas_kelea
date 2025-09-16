@@ -9,3 +9,9 @@ def extract_dispositions(text):
         r"(?:Resolución|Real Decreto(?:-ley| Legislativo)?|Orden|Acuerdo|Anuncio|Circular|Instrucción)[\s\S]*?(?=PDF\s*\(|$)",
         text
     )
+
+def norm(s: str) -> str:
+    """Normaliza strings eliminando espacios múltiples y caracteres no visibles como \xa0."""
+    if not s:
+        return ""
+    return " ".join(s.replace("\xa0", " ").split()).strip()
