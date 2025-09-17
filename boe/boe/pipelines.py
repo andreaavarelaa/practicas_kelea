@@ -1,58 +1,24 @@
-"""
-pipelines.py
-------------
-
-Pipeline de Scrapy encargado de guardar en la base de datos MySQL
-los items que se extraen del BOE.
-
-Flujo de trabajo:
-1. Cuando el spider arranca (`open_spider`), se abre la conexión con MySQL.
-2. Cada item pasa por `process_item`, donde:
-   - Se limpian y validan todos los campos.
-   - Si falta alguno, se descarta con `DropItem`.
-   - Si está completo, se inserta en la tabla `boe_v2`. 
-     Si ya existe (mismo `boe_code`), se actualiza.
-3. Cuando el spider termina (`close_spider`), se hace `commit` y se cierra la conexión.
-
-Requisitos:
-- Archivo `.env` con las variables:
-  DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME
-"""
-
 import os
+import logging
 import pymysql
+from pymysql import err as mysql_err
 
 from itemadapter import ItemAdapter
 from dotenv import load_dotenv
 from scrapy.exceptions import DropItem
 
-# Cargar variables de entorno (.env) con las credenciales de la BD
 load_dotenv()
 
-
 def _clean(s):
-    """
-    Normaliza strings eliminando espacios repetidos y caracteres invisibles.
-
-    Args:
-        s (str | None): Texto a limpiar.
-
-    Returns:
-        str | None: Texto limpio o None si estaba vacío.
-    """
     return " ".join(str(s).split()) if s is not None else None
 
-
 class BOEPipeline:
-    """
-    Pipeline para insertar ítems del BOE en MySQL.
-    """
+    def __init__(self):
+        self.logger = logging.getLogger(self.__class__.__name__)
+        self._batch = 0
+        self._batch_size = int(os.getenv("DB_BATCH_SIZE", "100"))
 
     def open_spider(self, spider):
-        """
-        Se ejecuta al abrir el spider.
-        Establece la conexión a la base de datos usando las variables de entorno.
-        """
         self.connection = pymysql.connect(
             host=os.getenv('DB_HOST'),
             port=int(os.getenv('DB_PORT')),
@@ -63,36 +29,29 @@ class BOEPipeline:
             cursorclass=pymysql.cursors.DictCursor
         )
         self.cursor = self.connection.cursor()
-        print("Conectando a base de datos:", os.getenv('DB_NAME'))
+        self.connection.ping(reconnect=True)
+        self.logger.info("Conectado a MySQL DB=%s", os.getenv('DB_NAME'))
 
     def close_spider(self, spider):
-        """
-        Se ejecuta al cerrar el spider.
-        Confirma los cambios y cierra la conexión.
-        """
-        self.connection.commit()
-        self.cursor.close()
-        self.connection.close()
+        try:
+            self.connection.commit()
+            self.logger.info("Commit final realizado.")
+        except Exception as e:
+            self.logger.exception("Error en commit final: %s", e)
+        finally:
+            try:
+                self.cursor.close()
+                self.connection.close()
+                self.logger.info("Conexión a BD cerrada.")
+            except Exception as e:
+                self.logger.exception("Error cerrando conexión: %s", e)
 
     def process_item(self, item, spider):
-        """
-        Procesa cada item:
-        - Limpia y valida todos los campos.
-        - Descarta el item si falta alguno.
-        - Inserta en la tabla boe_v2 (o actualiza si ya existía).
-
-        Args:
-            item (scrapy.Item): Item extraído por el spider.
-            spider (scrapy.Spider): Instancia del spider que emitió el item.
-
-        Returns:
-            scrapy.Item: El item procesado (si se insertó con éxito).
-        """
         adapter = ItemAdapter(item)
+        spider.crawler.stats.inc_value("pipeline/items_seen")
 
-        # Validación y limpieza 
-        campos = {}
-        faltan = []
+        # Limpieza y validación
+        campos, faltan = {}, []
         for field in adapter.field_names():
             valor = _clean(adapter.get(field))
             campos[field] = valor
@@ -100,9 +59,11 @@ class BOEPipeline:
                 faltan.append(field)
 
         if faltan:
+            for f in faltan:
+                spider.crawler.stats.inc_value(f"pipeline/missing_field/{f}")
+            spider.crawler.stats.inc_value("pipeline/items_dropped/incomplete")
             raise DropItem(f"Item incompleto. Faltan: {faltan}")
 
-        # Variables con los valores limpios
         boe_code   = campos["boe_code"]
         date       = campos["date"]
         section    = campos["section"]
@@ -113,7 +74,6 @@ class BOEPipeline:
         pdf_url    = campos["pdf_url"]
         source     = campos["source"]
 
-        # SQL: inserta o actualiza si ya existe 
         sql = """
             INSERT INTO boe_v2 (
                 boe_code, date, section, department, topic, preamble, url, pdf_url, source
@@ -129,18 +89,36 @@ class BOEPipeline:
                 pdf_url = VALUES(pdf_url),
                 source = VALUES(source)
         """
+        values = (boe_code, date, section, department, topic, preamble, url, pdf_url, source)
 
-        values = (
-            boe_code,
-            date,
-            section,
-            department,
-            topic,
-            preamble,
-            url,
-            pdf_url,
-            source
-        )
+        try:
+            self.connection.ping(reconnect=True)
+            self.cursor.execute(sql, values)
 
-        self.cursor.execute(sql, values)
-        return item
+            spider.crawler.stats.inc_value("pipeline/items_saved/db_ok")
+            self._batch += 1
+            if self._batch % self._batch_size == 0:
+                self.connection.commit()
+                self.logger.info("Commit por batch (items=%s)", self._batch)
+
+            self.logger.info("UPSERT OK: %s", boe_code)
+            return item
+
+        except mysql_err.OperationalError as e:
+            spider.crawler.stats.inc_value("pipeline/items_failed/OperationalError")
+            spider.crawler.stats.inc_value("pipeline/items_failed/db_error")  # agregado
+            self.connection.rollback()
+            self.logger.exception("OperationalError BD en %s: %s", boe_code, e)
+            raise
+        except mysql_err.IntegrityError as e:
+            spider.crawler.stats.inc_value("pipeline/items_failed/IntegrityError")
+            spider.crawler.stats.inc_value("pipeline/items_failed/db_error")  # agregado
+            self.connection.rollback()
+            self.logger.exception("IntegrityError BD en %s: %s", boe_code, e)
+            raise
+        except Exception as e:
+            spider.crawler.stats.inc_value("pipeline/items_failed/Other")
+            spider.crawler.stats.inc_value("pipeline/items_failed/db_error")  # agregado
+            self.connection.rollback()
+            self.logger.exception("Error BD en %s: %s", boe_code, e)
+            raise

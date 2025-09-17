@@ -1,17 +1,24 @@
+# spiders/boe_spider.py
 import datetime as dt
 import scrapy
 
-from boe.items import BOEItem
-from boe.filters import SECTIONS_WHITELIST, DEPARTMENTS_WHITELIST
-from boe.utils import DISPO_PREFIX, CODE_RE, HREF_RE, extract_dispositions, norm
+from scrapy import Request
+from scrapy.spidermiddlewares.httperror import HttpError
+from twisted.internet.error import DNSLookupError, TimeoutError
+
+from items import BOEItem
+from filters import SECTIONS_WHITELIST, DEPARTMENTS_WHITELIST
+from utils import DISPO_PREFIX, CODE_RE, HREF_RE, extract_dispositions, norm
+
 
 class BOESpider(scrapy.Spider):
     """Spider para recolectar las disposiciones del BOE entre dos fechas dadas."""
     name = "boe"
     handle_httpstatus_list = [404]
 
+    TOPIC_MAXLEN = 160  # umbral para detectar 'topic' breve
+
     def __init__(self, start_date=None, end_date=None, *args, **kwargs):
-        """Constructor del spider, requiere start_date y end_date como fechas ISO."""
         super().__init__(*args, **kwargs)
 
         if not start_date or not end_date:
@@ -23,94 +30,129 @@ class BOESpider(scrapy.Spider):
         if self.end_date < self.start_date:
             raise ValueError("end_date debe ser >= start_date")
 
+    # Silencia el warning de Scrapy 2.13+ manteniendo la lógica de start_requests()
+    async def start(self):
+        for req in self.start_requests():
+            yield req
+
     def start_requests(self):
-        """Genera una lista de fechas entre start_date y end_date, y lanza una petición por cada día al índice del BOE."""
         d = self.start_date
         one = dt.timedelta(days=1)
-
         while d <= self.end_date:
             url = f"https://boe.es/boe/dias/{d:%Y/%m/%d}/"
             self.logger.info("Queueing %s", url)
-            yield scrapy.Request(url, callback=self.parse_day, cb_kwargs={"date": d})
+            yield Request(url, callback=self.parse_day, errback=self.on_error, cb_kwargs={"date": d})
             d += one
 
+    # Incidencias de parseo (cambios HTML, etc.)
+    def _parse_issue(self, reason: str, **ctx):
+        self.crawler.stats.inc_value(f"parse/issues/{reason}")
+        if ctx:
+            self.logger.warning("Parse issue: %s | %s", reason, ctx)
+        else:
+            self.logger.warning("Parse issue: %s", reason)
+
+    # Heurística por mayúsculas si dejan de usar <h4> para el departamento
+    def _looks_like_department(self, text: str) -> bool:
+        if not text:
+            return False
+        t = text.strip()
+        return t.isupper() and 8 <= len(t) <= 140
+
     def parse_day(self, response, date):
-        """Procesa la página del BOE para un día específico, filtrando por secciones y departamentos. Genera un BOEItem por disposición encontrada."""
+        self.crawler.stats.inc_value(f"http/response/{response.status}")
+
         if response.status == 404:
             self.logger.info("No hay BOE el %s (404).", date.isoformat())
             return
 
-        # Selecciona encabezados de sección (h2/h3).
-        for sec_node in response.xpath("//h2|//h3"):
+        # Secciones: h2/h3 por defecto, con fallback si cambian etiquetas/clases
+        sec_nodes = response.xpath("//h2|//h3")
+        if not sec_nodes:
+            self._parse_issue("sections_selector_fallback_used")
+            sec_nodes = response.xpath(
+                "//h1 | //*[@role='heading'] | "
+                "//*[contains(@class,'seccion') or contains(@class,'section')]"
+            )
+
+        for sec_node in sec_nodes:
             section_title = norm(sec_node.xpath("normalize-space(string())").get())
 
-            # Ignora secciones no incluidas en el whitelist.
             if SECTIONS_WHITELIST and section_title not in SECTIONS_WHITELIST:
+                self._parse_issue("unknown_section", section=section_title)
                 continue
 
             current_dept = None
             current_topic = None
 
-            # Recorre los nodos después del encabezado de sección.
             for el in sec_node.xpath("following-sibling::*"):
                 tag = getattr(el.root, "tag", "").lower()
-                
-                if tag in ("h2", "h3"): 
-                    # Límite de la sección actual.
+
+                # Límite de sección
+                if tag in ("h2", "h3", "h1"):
                     break
 
                 text = norm(el.xpath("normalize-space(string())").get())
 
-                if tag == "h4":
-                    # Encabezado de departamento.
-                    current_dept = norm(text)
+                # Departamento: <h4> o heurística de mayúsculas
+                if tag == "h4" or self._looks_like_department(text):
+                    current_dept = text
                     current_topic = None
                     continue
 
                 if not current_dept:
-                    # Aún no se ha definido el departamento.
                     continue
 
-                # Ignora departamentos no incluidos en el whitelist.
                 if DEPARTMENTS_WHITELIST and current_dept not in DEPARTMENTS_WHITELIST:
+                    self._parse_issue("unknown_department", dept=current_dept, section=section_title)
                     continue
 
-                # Detecta el tema dentro del departamento.
+                # Topic breve (no disposición, no "PDF")
                 if text and not DISPO_PREFIX.match(text) and not text.startswith("PDF"):
-                    if len(text) <= 160:
+                    if len(text) <= self.TOPIC_MAXLEN:
                         current_topic = text
                         continue
+                    else:
+                        self._parse_issue("topic_too_long_or_changed",
+                                          length=len(text), section=section_title, dept=current_dept)
 
-                # Detecta la disposición oficial por regex.
+                # Disposición detectada por contenido (regex), no por etiqueta
                 if DISPO_PREFIX.match(text):
                     chunks = extract_dispositions(text)
                     html = el.get()
                     codes = CODE_RE.findall(html)
                     hrefs = HREF_RE.findall(html)
 
-                    if len(codes) != len(chunks):
-                        self.logger.debug(
-                            "Desalineado en %s / %s: %d títulos y %d códigos",
-                            section_title, current_dept, len(chunks), len(codes)
-                        )
-
-                    # Empareja cada disposición con su código y PDF.
                     for i, chunk in enumerate(chunks):
                         preamble = chunk.strip(" :;-")
-                        code = codes[i] if i < len(codes) else None
                         href = hrefs[i] if i < len(hrefs) else None
 
-                        if not code or not preamble:
-                            self.logger.warning("Disposición incompleta en %s: saltando.", date)
+                        # Código preferente: el del href; si no, el que salga en HTML
+                        code_from_href = None
+                        if href:
+                            m = CODE_RE.search(href)
+                            if m:
+                                code_from_href = m.group(0)
+
+                        code_html = codes[i] if i < len(codes) else None
+                        code = code_from_href or code_html
+
+                    
+                        if not code:
+                            self._parse_issue("missing_boe_code", section=section_title, dept=current_dept)
+                            continue
+                        if not preamble:
+                            self._parse_issue("missing_preamble", code=code,
+                                              section=section_title, dept=current_dept)
                             continue
 
-                        # Construye la URL del PDF y HTML.
                         pdf_url = response.urljoin(href) if href else (
                             f"https://boe.es/boe/dias/{date:%Y/%m/%d}/pdfs/{code}.pdf"
                         )
                         url = f"https://www.boe.es/buscar/doc.php?id={code}"
 
-                        # Genera el item para enviar al pipeline.
+                        self.crawler.stats.inc_value("parse/dispositions_emitted")
+
                         yield BOEItem(
                             boe_code=code,
                             date=f"{date:%Y-%m-%d}",
@@ -120,5 +162,22 @@ class BOESpider(scrapy.Spider):
                             preamble=preamble,
                             url=url,
                             pdf_url=pdf_url,
-                            source="BOE"
+                            source="BOE",
                         )
+
+    # Errback de red: clasifica y cuenta el motivo
+    def on_error(self, failure):
+        stats = self.crawler.stats
+        if failure.check(HttpError):
+            r = failure.value.response
+            self.logger.error("HTTP error %s en %s", r.status, r.url)
+            stats.inc_value(f"http/error/{r.status}")
+        elif failure.check(DNSLookupError):
+            self.logger.error("DNS error: %s", failure.request.url)
+            stats.inc_value("http/error/DNSLookupError")
+        elif failure.check(TimeoutError):
+            self.logger.error("Timeout: %s", failure.request.url)
+            stats.inc_value("http/error/TimeoutError")
+        else:
+            self.logger.exception("Error no controlado: %r", failure)
+            stats.inc_value("http/error/Unknown")
