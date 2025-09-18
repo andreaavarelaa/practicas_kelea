@@ -1,41 +1,77 @@
 import json
 import logging
 import os
-from datetime import timezone
+from datetime import timezone, datetime
+from typing import Any, Dict, Optional
 
 import pymysql
 from dotenv import load_dotenv
 from scrapy import signals
+from scrapy.crawler import Crawler
+from scrapy.spiders import Spider
+from scrapy.statscollectors import StatsCollector
+from twisted.python.failure import Failure
 
 load_dotenv()
 
 
 class RunLogger:
     """
-    Extensión que:
-    - Cuenta items caídos (y motivo) vía señales.
-    - Inserta un resumen JSON de la ejecución en MySQL al cerrar el spider.
-    - (Opcional) imprime el resumen en logs.
+    Extensión de Scrapy para observabilidad de ejecuciones:
+
+    - Escucha señales para:
+        * spider_opened: abrir (opcional) conexión a BD para el log de la ejecución.
+        * item_dropped: contar items caídos y agrupar por motivo.
+        * spider_closed: construir un resumen y:
+            · Loguearlo en consola (JSON).
+            · Insertarlo en MySQL (si está habilitado).
+
+    Diseño:
+      • No crea la tabla en caliente (asumimos DDL gestionado fuera).
+      • Controla commit/rollback y cierre de conexión de forma segura.
+      • Usa Scrapy stats como fuente de métricas (http/response/*, http/error/*, parse/issues/*, etc.).
+
+    Variables de entorno:
+      - RUN_DB_LOG_ENABLED: "1" (por defecto) para habilitar guardado en BD; "0" desactiva.
+      - RUN_DB_LOG_TABLE: nombre de la tabla (por defecto: "run_log").
+      - DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME: credenciales MySQL.
+
+    Requisitos BD:
+      • Tabla {RUN_DB_LOG_TABLE} con columnas compatibles (ver README abajo).
     """
 
-    def __init__(self, stats):
-        self.stats = stats
+    def __init__(self, stats: StatsCollector):
+        self.stats: StatsCollector = stats
         self.logger = logging.getLogger(self.__class__.__name__)
+
         # Config de guardado en BD
-        self.db_enabled = bool(int(os.getenv("RUN_DB_LOG_ENABLED", "1")))
-        self.table = os.getenv("RUN_DB_LOG_TABLE", "run_log")
-        self._conn = None
-        self._cursor = None
+        self.db_enabled: bool = bool(int(os.getenv("RUN_DB_LOG_ENABLED", "1")))
+        self.table: str = os.getenv("RUN_DB_LOG_TABLE", "run_log")
+
+        # Conexión/cursor se abren on-demand al abrir el spider
+        self._conn: Optional[pymysql.Connection] = None
+        self._cursor: Optional[pymysql.cursors.DictCursor] = None
+
+    # ---- Ciclo de vida: registro de señales ---------------------------------
 
     @classmethod
-    def from_crawler(cls, crawler):
+    def from_crawler(cls, crawler: Crawler) -> "RunLogger":
+        """
+        Hook estándar de Scrapy para inicializar extensiones y conectar señales.
+        """
         ext = cls(crawler.stats)
         crawler.signals.connect(ext.spider_opened, signal=signals.spider_opened)
         crawler.signals.connect(ext.item_dropped, signal=signals.item_dropped)
         crawler.signals.connect(ext.spider_closed, signal=signals.spider_closed)
         return ext
 
-    def _open_db(self):
+    # ---- Gestión de BD -------------------------------------------------------
+
+    def _open_db(self) -> None:
+        """
+        Abre la conexión a MySQL si está habilitado RUN_DB_LOG_ENABLED.
+        Si falla, desactiva la persistencia para esta ejecución.
+        """
         if not self.db_enabled or self._conn:
             return
         try:
@@ -50,12 +86,15 @@ class RunLogger:
                 autocommit=False,
             )
             self._cursor = self._conn.cursor()
-            # No creamos tabla aquí para no recalcar permisos; asume creada por DDL
+            # No creamos tabla aquí para no exigir permisos DDL en runtime.
         except Exception as e:
             self.logger.exception("No se pudo abrir conexión MySQL para run_log: %s", e)
-            self.db_enabled = False  # desactiva para este run
+            self.db_enabled = False  # desactiva persistencia para este run
 
-    def _close_db(self):
+    def _close_db(self) -> None:
+        """
+        Hace commit pendiente y cierra recursos de BD de forma segura.
+        """
         try:
             if self._conn:
                 self._conn.commit()
@@ -72,20 +111,44 @@ class RunLogger:
             self._cursor = None
             self._conn = None
 
-    def spider_opened(self, spider):
+    # ---- Señales -------------------------------------------------------------
+
+    def spider_opened(self, spider: Spider) -> None:
+        """
+        Se dispara al abrir el spider. Prepara (si procede) la conexión a BD.
+        """
         self.logger.info("Spider abierto: %s", spider.name)
         if self.db_enabled:
             self._open_db()
 
-    def item_dropped(self, item, response, exception, spider):
-        # Cuenta drops y agrupa por motivo de DropItem (o excepción)
+    def item_dropped(self, item: Any, response: Any, exception: Exception, spider: Spider) -> None:
+        """
+        Se dispara cuando un item es descartado (DropItem u otros errores).
+
+        - Sube contadores globales y por motivo de drop.
+        - Útil para detectar validaciones que fallan sistemáticamente.
+        """
         self.stats.inc_value("run/items_dropped")
         self.stats.inc_value(f"run/drop_reason/{str(exception)}")
 
-    def spider_closed(self, spider, reason):
-        s = self.stats.get_stats()
+    def spider_closed(self, spider: Spider, reason: str) -> None:
+        """
+        Se dispara al cerrar el spider. Construye un resumen y lo:
+          - Imprime en logs (JSON).
+          - Inserta en BD (si habilitado).
 
-        # Agregados para dicts JSON
+        Campos agregados:
+          • http_responses:  stats http/response/*
+          • http_errors:     stats http/error/*
+          • parse_issues:    stats parse/issues/*
+          • drop_reasons:    stats run/drop_reason/*
+          • items_scraped, items_dropped, db_ok, db_error
+          • started/finished UTC + duración
+          • start_date / end_date (si el spider los define)
+        """
+        s: Dict[str, Any] = self.stats.get_stats()
+
+        # ---- Agregados a dicts JSON -----------------------------------------
         http_responses = {
             k.split("http/response/")[1]: v
             for k, v in s.items()
@@ -107,16 +170,16 @@ class RunLogger:
             if isinstance(k, str) and k.startswith("run/drop_reason/")
         }
 
-        # Tiempos y duración (Scrapy da UTC con tzinfo)
-        start_dt = s.get("start_time")
-        finish_dt = s.get("finish_time")
+        # ---- Tiempos (Scrapy entrega timezone-aware, convertimos a UTC naive) -
+        start_dt: Optional[datetime] = s.get("start_time")
+        finish_dt: Optional[datetime] = s.get("finish_time")
         if start_dt:
             start_dt = start_dt.astimezone(timezone.utc).replace(tzinfo=None)
         if finish_dt:
             finish_dt = finish_dt.astimezone(timezone.utc).replace(tzinfo=None)
         duration = int((finish_dt - start_dt).total_seconds()) if start_dt and finish_dt else 0
 
-        # Intenta leer los args que pasaste al spider (si existen)
+        # ---- Args del spider (si existen) ------------------------------------
         start_date = getattr(spider, "start_date", None)
         end_date = getattr(spider, "end_date", None)
 
@@ -132,10 +195,10 @@ class RunLogger:
             "parse_issues": parse_issues,
         }
 
-        # Log a consola (elige INFO o WARNING según tu preferencia)
+        # ---- Log a consola (puedes cambiar a .warning si prefieres) ----------
         self.logger.info("Resumen de ejecución: %s", json.dumps(resumen, ensure_ascii=False))
 
-        # Persistencia en BD
+        # ---- Persistencia en BD ----------------------------------------------
         if self.db_enabled and self._cursor:
             try:
                 sql = f"""
@@ -155,6 +218,15 @@ class RunLogger:
                     "project": os.getenv("BOT_NAME", spider.settings.get("BOT_NAME", "")),
                     "scrapy_version": spider.settings.get("SCRAPY_VERSION", ""),
                 }
+
+                # Nota: start_date/end_date pueden ser date o str; normalizamos a str
+                def _iso(x: Any) -> Optional[str]:
+                    if x is None:
+                        return None
+                    if hasattr(x, "isoformat"):
+                        return x.isoformat()
+                    return str(x)
+
                 self._cursor.execute(
                     sql,
                     (
@@ -162,8 +234,8 @@ class RunLogger:
                         start_dt,
                         finish_dt,
                         duration,
-                        getattr(start_date, "isoformat", lambda: start_date)(),
-                        getattr(end_date, "isoformat", lambda: end_date)(),
+                        _iso(start_date),
+                        _iso(end_date),
                         reason,
                         resumen["items_scraped"],
                         resumen["items_dropped"],
@@ -183,5 +255,5 @@ class RunLogger:
             finally:
                 self._close_db()
         else:
-            # Si no hay BD, asegúrate de cerrar si se abrió
+            # Si no hay BD o falló, intenta cerrar por si se abrió previamente
             self._close_db()
