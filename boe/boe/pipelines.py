@@ -55,6 +55,10 @@ class BOEPipeline:
         Se ejecuta una vez cuando se abre el spider.
         Establece la conexión y el cursor a MySQL.
         """
+
+        self.logger.info("DB_HOST=%s DB_PORT=%s DB_NAME=%s",
+                 os.getenv('DB_HOST'), os.getenv('DB_PORT'), os.getenv('DB_NAME'))
+
         self.connection = pymysql.connect(
             host=os.getenv('DB_HOST'),
             port=int(os.getenv('DB_PORT')),
@@ -91,32 +95,12 @@ class BOEPipeline:
                 self.logger.exception("Error cerrando conexión: %s", e)
 
     def process_item(self, item, spider):
-        """
-        Procesa cada item:
-          1) Limpia y valida campos.
-          2) Inserta/actualiza en MySQL con UPSERT.
-          3) Hace commit por lote cuando corresponde.
-
-        Métricas (`crawler.stats.inc_value`):
-          - pipeline/items_seen
-          - pipeline/missing_field/<field>
-          - pipeline/items_dropped/incomplete
-          - pipeline/items_saved/db_ok
-          - pipeline/items_failed/OperationalError
-          - pipeline/items_failed/IntegrityError
-          - pipeline/items_failed/Other
-          - pipeline/items_failed/db_error
-
-        Raises:
-            DropItem: si el item está incompleto.
-            mysql_err.* / Exception: se relanza tras rollback para que Scrapy lo registre.
-        """
         adapter = ItemAdapter(item)
         spider.crawler.stats.inc_value("pipeline/items_seen")
 
-        # Limpieza y validación
-        required_fields = ["boe_code", "date", "section", "department", 
-        "topic", "preamble", "url", "pdf_url", "source"]
+        # Validación mínima de campos base
+        required_fields = ["boe_code", "date", "section", "department",
+                        "topic", "preamble", "url", "pdf_url", "source"]
         missing = []
         for field in required_fields:
             value = _clean(adapter.get(field))
@@ -124,12 +108,6 @@ class BOEPipeline:
                 missing.append(field)
             else:
                 adapter[field] = value
-        # campos, faltan = {}, []
-        # for field in adapter.field_names():
-        #     valor = _clean(adapter.get(field))
-        #     campos[field] = valor
-        #     if not valor:
-        #         faltan.append(field)
 
         if missing:
             for m in missing:
@@ -137,31 +115,20 @@ class BOEPipeline:
             spider.crawler.stats.inc_value("pipeline/items_dropped/incomplete")
             raise DropItem(f"Item incompleto. Faltan: {missing}")
 
-        # boe_code   = campos["boe_code"]
-        # date       = campos["date"]
-        # section    = campos["section"]
-        # department = campos["department"]
-        # topic      = campos["topic"]
-        # preamble   = campos["preamble"]
-        # url        = campos["url"]
-        # pdf_url    = campos["pdf_url"]
-        # source     = campos["source"]
-
+        # --- Análisis semántico (Gemini) ---
         try:
-            result = analyze_text(adapter["pdf_url"])
+            result = analyze_text(adapter["pdf_url"])  # usa wrapper de gemini_utils
             save = result.get("guardar_en_bd", False)
-            summary = result.get("resumen", "")
-            impact = result.get("impacto", "")
-
-            adapter["summary"] = summary
-            adapter["impact"] = impact
+            adapter["summary"] = result.get("resumen", "") or ""
+            adapter["impact"]  = result.get("impacto", "") or ""
 
             if not save:
-                spider.logger.info("Descartado (sin impacto en el sector retail): %s", adapter["boe_code"])
+                spider.logger.info("Descartado (sin impacto retail): %s", adapter["boe_code"])
                 spider.crawler.stats.inc_value("pipeline/items_dropped/no_retail_impact")
-                raise DropItem("Descartado por análisis semántico (sin impacto en el sector retail)")
-        
+                raise DropItem("Descartado por análisis semántico (sin impacto retail)")
+
         except Exception as e:
+            # Si prefieres NO descartar, cambia a: adapter["summary"]=""; adapter["impact"]=str(e)
             spider.logger.exception("Error analizando con Gemini: %s", e)
             spider.crawler.stats.inc_value("pipeline/items_failed/gemini_error")
             raise DropItem("Error al procesar con Gemini")
@@ -170,7 +137,7 @@ class BOEPipeline:
             spider.crawler.stats.inc_value("pipeline/items_dropped/incomplete_post_analysis")
             raise DropItem("Faltan summary o impact tras análisis")
 
-        # Nota: ON DUPLICATE KEY UPDATE requiere que `boe_code` sea UNIQUE/PRIMARY KEY
+        # --- UPSERT ---
         sql = """
             INSERT INTO boe_items (
                 boe_code, date, section, department, topic, preamble, url, pdf_url, summary, impact, source
@@ -188,47 +155,48 @@ class BOEPipeline:
                 impact = VALUES(impact),
                 source = VALUES(source)
         """
-        values = (boe_code, date, section, department, topic, preamble, url, pdf_url, summary, impact, source)
+        values = (
+            adapter["boe_code"],
+            adapter["date"],
+            adapter["section"],
+            adapter["department"],
+            adapter["topic"],
+            adapter["preamble"],
+            adapter["url"],
+            adapter["pdf_url"],
+            adapter["summary"],
+            adapter["impact"],
+            adapter["source"],
+        )
 
         try:
-            # Asegura conexión viva y ejecuta
             self.connection.ping(reconnect=True)
             self.cursor.execute(sql, values)
-
-            # Métrica de éxito e incremento de lote
             spider.crawler.stats.inc_value("pipeline/items_saved/db_ok")
             self._batch += 1
 
-            # Commit por batch
             if self._batch % self._batch_size == 0:
                 self.connection.commit()
                 self.logger.info("Commit por batch (items acumulados=%s)", self._batch)
 
-            self.logger.info("UPSERT OK: %s", boe_code)
-            # if os.getenv("ENABLE_GEMINI_SUMMARY", "1") == "1":
-            #     summary = extract_and_summarize(pdf_url)
-            #     item["text"] = summary
-            #     self.logger.info("Resumen Gemini generado para %s", boe_code)
+            self.logger.info("UPSERT OK: %s", adapter["boe_code"])
             return item
 
         except mysql_err.OperationalError as e:
-            # Errores de conexión/red/bloqueos
             spider.crawler.stats.inc_value("pipeline/items_failed/OperationalError")
             spider.crawler.stats.inc_value("pipeline/items_failed/db_error")
             self.connection.rollback()
-            self.logger.exception("OperationalError BD en %s: %s", boe_code, e)
+            self.logger.exception("OperationalError BD en %s: %s", adapter["boe_code"], e)
             raise
         except mysql_err.IntegrityError as e:
-            # Violaciones de integridad (clave, tipos, etc.)
             spider.crawler.stats.inc_value("pipeline/items_failed/IntegrityError")
             spider.crawler.stats.inc_value("pipeline/items_failed/db_error")
             self.connection.rollback()
-            self.logger.exception("IntegrityError BD en %s: %s", boe_code, e)
+            self.logger.exception("IntegrityError BD en %s: %s", adapter["boe_code"], e)
             raise
         except Exception as e:
-            # Cualquier otro error SQL o de datos
             spider.crawler.stats.inc_value("pipeline/items_failed/Other")
             spider.crawler.stats.inc_value("pipeline/items_failed/db_error")
             self.connection.rollback()
-            self.logger.exception("Error BD en %s: %s", boe_code, e)
+            self.logger.exception("Error BD en %s: %s", adapter["boe_code"], e)
             raise
