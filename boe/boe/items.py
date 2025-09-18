@@ -9,5 +9,6 @@ class BOEItem(scrapy.Item):
     preamble = scrapy.Field()       # Preámbulo del articulo
     url = scrapy.Field()            # URL HTML 
     pdf_url = scrapy.Field()        # URL al PDF oficial
-    # text = scrapy.Field()         # Texto completo (opcional)
+    summary = scrapy.Field()        # Resumen de la disposición
+    impact = scrapy.Field()         # Impacto en el sector retail
     source = scrapy.Field()         # Fuente (ej: "BOE", "DOG", etc..)

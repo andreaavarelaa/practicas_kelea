@@ -6,9 +6,9 @@ from scrapy import Request
 from scrapy.spidermiddlewares.httperror import HttpError
 from twisted.internet.error import DNSLookupError, TimeoutError
 
-from items import BOEItem
-from filters import SECTIONS_WHITELIST, DEPARTMENTS_WHITELIST
-from utils import DISPO_PREFIX, CODE_RE, HREF_RE, extract_dispositions, norm
+from boe.items import BOEItem
+from boe.filters import SECTIONS_WHITELIST, DEPARTMENTS_WHITELIST
+from boe.utils import DISPO_PREFIX, CODE_RE, HREF_RE, extract_dispositions, norm
 
 
 class BOESpider(scrapy.Spider):
@@ -162,6 +162,8 @@ class BOESpider(scrapy.Spider):
                             preamble=preamble,
                             url=url,
                             pdf_url=pdf_url,
+                            summary="",
+                            impact="",
                             source="BOE",
                         )
 

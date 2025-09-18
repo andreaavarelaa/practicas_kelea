@@ -1,7 +1,7 @@
 BOT_NAME = "boe"
 
-SPIDER_MODULES = ["spiders"]
-NEWSPIDER_MODULE = "spiders"
+SPIDER_MODULES = ["boe.spiders"]
+NEWSPIDER_MODULE = "boe.spiders"
 
 # Respeto robots + UA identificable
 ROBOTSTXT_OBEY = True
@@ -23,10 +23,10 @@ LOG_DATEFORMAT = "%Y-%m-%d %H:%M:%S"
 
 # Extensión de resumen
 EXTENSIONS = {
-    "extensions.RunLogger": 300,
+    "boe.extensions.RunLogger": 300,
 }
 
 # Pipeline de BD
 ITEM_PIPELINES = {
-    "pipelines.BOEPipeline": 300,
+    "boe.pipelines.BOEPipeline": 300,
 }

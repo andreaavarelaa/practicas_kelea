@@ -1,4 +1,3 @@
-# extensions.py
 import json
 import logging
 import os
