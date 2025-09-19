@@ -282,16 +282,20 @@ class BOESpider(scrapy.Spider):
           - http/error/Unknown
         """
         stats = self.crawler.stats
+
         if failure.check(HttpError):
             r = failure.value.response
             self.logger.error("HTTP error %s en %s", r.status, r.url)
             stats.inc_value(f"http/error/{r.status}")
+
         elif failure.check(DNSLookupError):
             self.logger.error("DNS error: %s", failure.request.url)
             stats.inc_value("http/error/DNSLookupError")
+
         elif failure.check(TimeoutError):
             self.logger.error("Timeout: %s", failure.request.url)
             stats.inc_value("http/error/TimeoutError")
+            
         else:
             self.logger.exception("Error no controlado: %r", failure)
             stats.inc_value("http/error/Unknown")

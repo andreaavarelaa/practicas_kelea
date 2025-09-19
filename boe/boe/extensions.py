@@ -1,12 +1,13 @@
 import json
 import logging
 import os
+import pymysql
+
 from datetime import timezone, datetime
 from typing import Any, Dict, Optional
-
-import pymysql
 from dotenv import load_dotenv
 from scrapy import signals
+
 from scrapy.crawler import Crawler
 from scrapy.spiders import Spider
 from scrapy.statscollectors import StatsCollector

@@ -184,12 +184,14 @@ class BOEPipeline:
             self.connection.rollback()
             self.logger.exception("OperationalError BD en %s: %s", adapter["boe_code"], e)
             raise
+
         except mysql_err.IntegrityError as e:
             spider.crawler.stats.inc_value("pipeline/items_failed/IntegrityError")
             spider.crawler.stats.inc_value("pipeline/items_failed/db_error")
             self.connection.rollback()
             self.logger.exception("IntegrityError BD en %s: %s", adapter["boe_code"], e)
             raise
+            
         except Exception as e:
             spider.crawler.stats.inc_value("pipeline/items_failed/Other")
             spider.crawler.stats.inc_value("pipeline/items_failed/db_error")
