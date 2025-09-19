@@ -46,9 +46,11 @@ def analyze_text_with_gemini(text: str) -> dict:
 
     prompt = f"""
     Analiza el siguiente texto del BOE y responde SOLO con JSON:
-    1) "resumen": breve y claro
-    2) "impacto": impacto directo o indirecto en el retail en España (o "sin impacto")
-    3) "guardar_en_bd": true si es relevante para retail; false si no
+
+        - "resumen": detallado; debe incluir la información clave, con los puntos principales identificados; 
+        responde cualquier pregunta relevante que pueda inferirse del contenido.
+        
+        - "guardar_en_bd": true si tiene un impacto relevante en el sector retail; false si no.
 
     TEXTO:
     {text}
