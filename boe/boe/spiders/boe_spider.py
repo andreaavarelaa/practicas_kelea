@@ -158,7 +158,7 @@ class BOESpider(scrapy.Spider):
             return
 
         # Secciones: selector primario y fallback si el HTML cambia
-        sec_nodes = response.xpath("//h2|//h3")
+        sec_nodes = response.xpath("//h3")
         if not sec_nodes:
             self._parse_issue("sections_selector_fallback_used")
             sec_nodes = response.xpath(
@@ -182,7 +182,7 @@ class BOESpider(scrapy.Spider):
                 tag = getattr(el.root, "tag", "").lower()
 
                 # Límite de sección (siguiente h1/h2/h3 corta el recorrido)
-                if tag in ("h2", "h3", "h1"):
+                if tag in == "h3":
                     break
 
                 text = norm(el.xpath("normalize-space(string())").get())
@@ -295,7 +295,7 @@ class BOESpider(scrapy.Spider):
         elif failure.check(TimeoutError):
             self.logger.error("Timeout: %s", failure.request.url)
             stats.inc_value("http/error/TimeoutError")
-            
+
         else:
             self.logger.exception("Error no controlado: %r", failure)
             stats.inc_value("http/error/Unknown")

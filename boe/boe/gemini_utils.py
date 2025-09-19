@@ -45,12 +45,49 @@ def analyze_text_with_gemini(text: str) -> dict:
         return {"resumen": "", "guardar_en_bd": False}
 
     prompt = f"""
-    Analiza el siguiente texto del BOE y responde SOLO con JSON:
+    Analiza el siguiente texto del BOE y responde SOLO con JSON, hazlo siempre en español:
 
         - "resumen": detallado; debe incluir la información clave, con los puntos principales identificados; 
         responde cualquier pregunta relevante que pueda inferirse del contenido.
-        
+
         - "guardar_en_bd": true si tiene un impacto relevante en el sector retail; false si no.
+
+        Ejemplo de estructura del JSON:
+        'informacion_clave': ['El plan estratégico tiene una duración de '
+                                   'tres años (2025-2027).',
+                                   'Se priorizan las actuaciones relacionadas '
+                                   'con la estabilidad en el empleo, el tiempo '
+                                   'de trabajo, los salarios, la seguridad y '
+                                   'salud laboral, la igualdad y la inclusión.',
+                                   'Se busca mejorar la eficiencia y la '
+                                   'calidad del servicio público, adaptándose '
+                                   'a los nuevos desafíos tecnológicos y '
+                                   'sociales.',
+                                   'Se contempla el incremento de la '
+                                   'plantilla, la formación del personal, la '
+                                   'digitalización de procesos, y la mejora de '
+                                   'la comunicación con la ciudadanía.'],
+             'preguntas_relevantes': ['¿Qué impacto tendrá el plan en el '
+                                      'mercado laboral español?',
+                                      ' ¿Cómo se financiarán las medidas '
+                                      'propuestas?',
+                                      '¿Cómo se evaluará el éxito del plan?'],
+             'puntos_principales': ['Aprobación del Plan Estratégico de la '
+                                    'Inspección de Trabajo y Seguridad Social '
+                                    '2025-2027',
+                                    'El plan se centra en la defensa de los '
+                                    'derechos de los trabajadores y la '
+                                    'prestación de un servicio público de '
+                                    'calidad.',
+                                    'Se establecen 17 objetivos, agrupados en '
+                                    'dos ejes principales: actividad '
+                                    'inspectora y organización.',
+                                    'Se incluyen medidas para la modernización '
+                                    'tecnológica, la formación del personal y '
+                                    'la transparencia.',
+                                    'El plan está alineado con los Objetivos '
+                                    'de Desarrollo Sostenible (ODS) de la '
+                                    'Agenda 2030.']
 
     TEXTO:
     {text}
