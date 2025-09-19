@@ -1,5 +1,3 @@
-# settings.py — Configuración global de Scrapy para el proyecto BOE
-
 # ---------------------------------------------------------------------------
 # Identificación del proyecto
 # ---------------------------------------------------------------------------

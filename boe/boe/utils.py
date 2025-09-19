@@ -1,4 +1,3 @@
-# utils.py — Utilidades y expresiones regulares específicas del BOE
 import re
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-# spiders/boe_spider.py
 import datetime as dt
 import scrapy
 
@@ -266,7 +265,6 @@ class BOESpider(scrapy.Spider):
                             url=url,
                             pdf_url=pdf_url,
                             summary="",
-                            impact="",
                             source="BOE",
                         )
 

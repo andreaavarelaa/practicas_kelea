@@ -120,7 +120,6 @@ class BOEPipeline:
             result = analyze_text(adapter["pdf_url"])  # usa wrapper de gemini_utils
             save = result.get("guardar_en_bd", False)
             adapter["summary"] = result.get("resumen", "") or ""
-            adapter["impact"]  = result.get("impacto", "") or ""
 
             if not save:
                 spider.logger.info("Descartado (sin impacto retail): %s", adapter["boe_code"])
@@ -128,21 +127,20 @@ class BOEPipeline:
                 raise DropItem("Descartado por análisis semántico (sin impacto retail)")
 
         except Exception as e:
-            # Si prefieres NO descartar, cambia a: adapter["summary"]=""; adapter["impact"]=str(e)
             spider.logger.exception("Error analizando con Gemini: %s", e)
             spider.crawler.stats.inc_value("pipeline/items_failed/gemini_error")
             raise DropItem("Error al procesar con Gemini")
 
-        if not adapter["summary"] or not adapter["impact"]:
+        if not adapter["summary"]:
             spider.crawler.stats.inc_value("pipeline/items_dropped/incomplete_post_analysis")
-            raise DropItem("Faltan summary o impact tras análisis")
+            raise DropItem("Falta summary tras análisis")
 
         # --- UPSERT ---
         sql = """
             INSERT INTO boe_items (
-                boe_code, date, section, department, topic, preamble, url, pdf_url, summary, impact, source
+                boe_code, date, section, department, topic, preamble, url, pdf_url, summary, source
             )
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ON DUPLICATE KEY UPDATE
                 date = VALUES(date),
                 section = VALUES(section),
@@ -152,7 +150,6 @@ class BOEPipeline:
                 url = VALUES(url),
                 pdf_url = VALUES(pdf_url),
                 summary = VALUES(summary),
-                impact = VALUES(impact),
                 source = VALUES(source)
         """
         values = (
@@ -165,7 +162,6 @@ class BOEPipeline:
             adapter["url"],
             adapter["pdf_url"],
             adapter["summary"],
-            adapter["impact"],
             adapter["source"],
         )
 

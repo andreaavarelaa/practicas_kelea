@@ -1,4 +1,3 @@
-# boe/gemini_utils.py
 import os, re, json, requests, fitz
 import google.generativeai as genai
 from dotenv import load_dotenv
@@ -43,7 +42,7 @@ def extract_text_from_pdf(url: str) -> str:
 
 def analyze_text_with_gemini(text: str) -> dict:
     if not text or text.startswith("ERROR:"):
-        return {"resumen": "", "impacto": text or "ERROR: Texto vacío", "guardar_en_bd": False}
+        return {"resumen": "", "guardar_en_bd": False}
 
     prompt = f"""
 Analiza el siguiente texto del BOE y responde SOLO con JSON:
@@ -62,7 +61,7 @@ TEXTO:
         raw = _resp_text(resp)
         return json.loads(raw) if raw.strip().startswith("{") else _safe_parse_json(raw)
     except Exception as e:
-        return {"resumen": "", "impacto": f"Error en análisis con Gemini: {e}", "guardar_en_bd": False}
+        return {"resumen": "", "guardar_en_bd": False}
 
 # Wrapper compatible con tu pipeline actual:
 def analyze_text(pdf_url: str) -> dict:
