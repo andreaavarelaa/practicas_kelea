@@ -182,7 +182,7 @@ class BOESpider(scrapy.Spider):
                 tag = getattr(el.root, "tag", "").lower()
 
                 # Límite de sección (siguiente h1/h2/h3 corta el recorrido)
-                if tag in == "h3":
+                if tag == "h3":
                     break
 
                 text = norm(el.xpath("normalize-space(string())").get())

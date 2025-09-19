@@ -40,6 +40,7 @@ def extract_text_from_pdf(url: str) -> str:
     except Exception as e:
         return f"ERROR: {e}"
 
+# REVISAR ESTA FUNCIÓN, QUE GUARDE SIEMPRE EN BD, NO SOLO CUANDO HAYA IMPACTO (ESO LO DEJAMOS PARA N8N)
 def analyze_text_with_gemini(text: str) -> dict:
     if not text or text.startswith("ERROR:"):
         return {"resumen": "", "guardar_en_bd": False}
