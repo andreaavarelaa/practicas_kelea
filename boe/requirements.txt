@@ -3,3 +3,4 @@ uvicorn
 scrapy
 pymysql
 python-dotenv
+PyMuPDF
