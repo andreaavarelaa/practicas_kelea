@@ -40,68 +40,69 @@ def extract_text_from_pdf(url: str) -> str:
     except Exception as e:
         return f"ERROR: {e}"
 
-# REVISAR ESTA FUNCIÓN, QUE GUARDE SIEMPRE EN BD, NO SOLO CUANDO HAYA IMPACTO (ESO LO DEJAMOS PARA N8N)
 def analyze_text_with_gemini(text: str) -> dict:
     if not text or text.startswith("ERROR:"):
-        return {"resumen": "", "guardar_en_bd": False}
+        return {"impacto_retail": False, "resumen": None}
 
     prompt = f"""
-    Analiza el siguiente texto del BOE y responde SOLO con JSON, hazlo siempre en español:
-
-        - "resumen": detallado; debe incluir la información clave, con los puntos principales identificados; 
-        responde cualquier pregunta relevante que pueda inferirse del contenido.
-
-        - "guardar_en_bd": true si tiene un impacto relevante en el sector retail; false si no.
-
-        Ejemplo de estructura del JSON:
-        'informacion_clave': ['El plan estratégico tiene una duración de '
-                                   'tres años (2025-2027).',
-                                   'Se priorizan las actuaciones relacionadas '
-                                   'con la estabilidad en el empleo, el tiempo '
-                                   'de trabajo, los salarios, la seguridad y '
-                                   'salud laboral, la igualdad y la inclusión.',
-                                   'Se busca mejorar la eficiencia y la '
-                                   'calidad del servicio público, adaptándose '
-                                   'a los nuevos desafíos tecnológicos y '
-                                   'sociales.',
-                                   'Se contempla el incremento de la '
-                                   'plantilla, la formación del personal, la '
-                                   'digitalización de procesos, y la mejora de '
-                                   'la comunicación con la ciudadanía.'],
-             'preguntas_relevantes': ['¿Qué impacto tendrá el plan en el '
-                                      'mercado laboral español?',
-                                      ' ¿Cómo se financiarán las medidas '
-                                      'propuestas?',
-                                      '¿Cómo se evaluará el éxito del plan?'],
-             'puntos_principales': ['Aprobación del Plan Estratégico de la '
-                                    'Inspección de Trabajo y Seguridad Social '
-                                    '2025-2027',
-                                    'El plan se centra en la defensa de los '
-                                    'derechos de los trabajadores y la '
-                                    'prestación de un servicio público de '
-                                    'calidad.',
-                                    'Se establecen 17 objetivos, agrupados en '
-                                    'dos ejes principales: actividad '
-                                    'inspectora y organización.',
-                                    'Se incluyen medidas para la modernización '
-                                    'tecnológica, la formación del personal y '
-                                    'la transparencia.',
-                                    'El plan está alineado con los Objetivos '
-                                    'de Desarrollo Sostenible (ODS) de la '
-                                    'Agenda 2030.']
-
+    Eres un analista especializado en regulación comercial española del sector retail. 
+    
+    TAREA:
+    1. Analiza si este texto del BOE tiene impacto directo en el sector retail/comercio
+    2. Si SÍ tiene impacto, haz un resumen completo del artículo
+    3. Si NO tiene impacto, no hagas resumen
+    
+    CRITERIOS DE IMPACTO RETAIL (considerar SI):
+    - Normativas de comercio, consumo, competencia
+    - Cambios fiscales que afecten empresas o consumidores
+    - Regulación laboral (salarios, jornadas, convenios) que afecte múltiples sectores
+    - Seguridad alimentaria, productos, etiquetado
+    - Medioambiente que afecte operaciones comerciales
+    - Subvenciones o ayudas a empresas
+    - Cambios en licencias, autorizaciones comerciales
+    - Transporte, logística, aduanas (impacto en cadena de suministro)
+    - Tecnología, comercio electrónico, protección de datos
+    - Precios regulados, servicios básicos que afecten costes operativos
+    - Infraestructura que afecte acceso a zonas comerciales
+    
+    NO CONSIDERAR COMO IMPACTO RETAIL (descartar):
+    - Nombramientos de funcionarios específicos
+    - Convenios muy específicos entre administraciones sin impacto comercial
+    - Normativa exclusivamente militar o defensa
+    - Procedimientos judiciales individuales
+    - Tipos de cambio rutinarios diarios
+    - Convocatorias de oposiciones
+    - Convenios de empresas mediáticas sin relevancia sectorial amplia
+    
+    Responde SOLO con este JSON:
+    {{
+        "impacto_retail": true/false,
+        "resumen": "Resumen completo y detallado del artículo explicando qué establece, a quién afecta, fechas importantes, cambios que introduce, etc."
+    }}
+    
+    Si impacto_retail es false, pon resumen como null.
+    
     TEXTO:
     {text}
     """
+    
     try:
         resp = MODEL.generate_content(
             prompt,
             generation_config={"response_mime_type": "application/json"}
         )
         raw = _resp_text(resp)
-        return json.loads(raw) if raw.strip().startswith("{") else _safe_parse_json(raw)
+        result = json.loads(raw) if raw.strip().startswith("{") else _safe_parse_json(raw)
+        
+        # Validación: si no hay impacto, asegurar que resumen sea None
+        if not result.get("impacto_retail", False):
+            result["resumen"] = None
+            
+        return result
+        
     except Exception as e:
-        return {"resumen": "", "guardar_en_bd": False}
+        print(f"Error en Gemini: {e}")
+        return {"impacto_retail": False, "resumen": None}
 
 # Wrapper compatible con tu pipeline actual:
 def analyze_text(pdf_url: str) -> dict:

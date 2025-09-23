@@ -28,16 +28,7 @@ def _clean(s):
 class BOEPipeline:
     """
     Pipeline de Scrapy para insertar/actualizar (UPSERT) items del BOE en MySQL.
-
-    - Valida campos requeridos: si falta alguno, descarta el item (DropItem) y registra métricas.
-    - Limpia valores de texto (_clean) antes de persistir.
-    - Inserta con `INSERT ... ON DUPLICATE KEY UPDATE` para que el proceso sea idempotente.
-    - Hace commit por lotes (batch) para mejorar rendimiento.
-    - Registra métricas en `crawler.stats` (útil para dashboards/monitorización).
-
-    Requisitos:
-      • Tabla `boe_v2` con clave única/primaria en `boe_code`.
-      • Variables de entorno de conexión (ver README más abajo).
+    Solo procesa items con impacto en retail según análisis de Gemini.
     """
 
     def __init__(self):
@@ -117,23 +108,35 @@ class BOEPipeline:
 
         # --- Análisis semántico (Gemini) ---
         try:
-            result = analyze_text(adapter["pdf_url"])  # usa wrapper de gemini_utils
-            save = result.get("guardar_en_bd", False)
-            adapter["summary"] = result.get("resumen", "") or ""
-
-            if not save:
-                spider.logger.info("Descartado (sin impacto retail): %s", adapter["boe_code"])
+            self.logger.info("Analizando con Gemini: %s", adapter["boe_code"])
+            result = analyze_text(adapter["pdf_url"])
+            
+            # Verificar si tiene impacto retail
+            has_impact = result.get("impacto_retail", False)
+            
+            if not has_impact:
+                self.logger.info("Sin impacto retail - DESCARTADO: %s", adapter["boe_code"])
                 spider.crawler.stats.inc_value("pipeline/items_dropped/no_retail_impact")
-                raise DropItem("Descartado por análisis semántico (sin impacto retail)")
+                raise DropItem("Sin impacto retail")
+            
+            # Si llega aquí, SÍ tiene impacto - obtener resumen
+            resumen_text = result.get("resumen")
+            if not resumen_text:
+                self.logger.warning("Impacto retail pero sin resumen: %s", adapter["boe_code"])
+                spider.crawler.stats.inc_value("pipeline/items_dropped/no_summary")
+                raise DropItem("Impacto retail confirmado pero falta resumen")
+            
+            # Guardar el resumen como string directamente
+            adapter["summary"] = resumen_text
+            self.logger.info("IMPACTO RETAIL CONFIRMADO - Guardando: %s", adapter["boe_code"])
 
+        except DropItem:
+            # Re-lanzar DropItems (son comportamiento esperado)
+            raise
         except Exception as e:
-            spider.logger.exception("Error analizando con Gemini: %s", e)
+            self.logger.exception("Error analizando con Gemini %s: %s", adapter["boe_code"], e)
             spider.crawler.stats.inc_value("pipeline/items_failed/gemini_error")
-            raise DropItem("Error al procesar con Gemini")
-
-        if not adapter["summary"]:
-            spider.crawler.stats.inc_value("pipeline/items_dropped/incomplete_post_analysis")
-            raise DropItem("Falta summary tras análisis")
+            raise DropItem("Error en análisis Gemini")
 
         # --- UPSERT ---
         sql = """
@@ -161,7 +164,7 @@ class BOEPipeline:
             adapter["preamble"],
             adapter["url"],
             adapter["pdf_url"],
-            adapter["summary"],
+            adapter["summary"],  # Ya es una string del resumen
             adapter["source"],
         )
 
