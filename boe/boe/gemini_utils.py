@@ -2,6 +2,7 @@ import os, re, json, requests, fitz
 import google.generativeai as genai
 from dotenv import load_dotenv
 
+# --- Config ---
 load_dotenv()
 API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
@@ -9,14 +10,8 @@ if not API_KEY:
 genai.configure(api_key=API_KEY)
 MODEL = genai.GenerativeModel("gemini-1.5-flash")
 
-def _safe_parse_json(s: str) -> dict:
-    s = (s or "").strip()
-    s = re.sub(r"^```(?:json)?\s*|\s*```$", "", s, flags=re.IGNORECASE)
-    m = re.search(r"\{.*\}", s, flags=re.DOTALL)
-    if not m:
-        raise ValueError("Respuesta sin objeto JSON.")
-    return json.loads(m.group(0))
 
+# --- Helpers ---
 def _resp_text(resp) -> str:
     t = getattr(resp, "text", None)
     if t:
@@ -30,80 +25,64 @@ def _resp_text(resp) -> str:
                 parts.append(txt)
     return "\n".join(parts).strip()
 
-def extract_text_from_pdf(url: str) -> str:
-    try:
-        r = requests.get(url, headers={"User-Agent": "boe-scraper/1.0"}, timeout=30)
-        r.raise_for_status()
-        with fitz.open(stream=r.content, filetype="pdf") as pdf:
-            text = "".join(page.get_text() for page in pdf).strip()
-        return text if text else "ERROR: PDF sin texto extraíble (posible escaneado/imagen)."
-    except Exception as e:
-        return f"ERROR: {e}"
+def _clean_fences(s: str) -> str:
+    return re.sub(r"^```(?:json)?\s*|\s*```$", "", (s or "").strip(), flags=re.IGNORECASE)
 
+
+# --- Extracción de texto ---
+def extract_text(url: str) -> str:
+    """Soporta PDF y HTML (fallback simple quitando tags)."""
+    r = requests.get(url, headers={"User-Agent": "boe-scraper/1.0"}, timeout=30)
+    r.raise_for_status()
+    ctype = r.headers.get("Content-Type", "").lower()
+    if url.lower().endswith(".pdf") or "application/pdf" in ctype:
+        with fitz.open(stream=r.content, filetype="pdf") as pdf:
+            return "\n".join(page.get_text("text") for page in pdf).strip()
+    else:
+        text = re.sub(r"<[^>]+>", " ", r.text)
+        return re.sub(r"\s+", " ", text).strip()
+
+
+# --- Análisis con Gemini ---
 def analyze_text_with_gemini(text: str) -> dict:
+    """
+    Devuelve siempre {"impacto_retail": bool, "resumen": str|None}
+    """
     if not text or text.startswith("ERROR:"):
         return {"impacto_retail": False, "resumen": None}
 
     prompt = f"""
-    Eres un analista especializado en regulación comercial española del sector retail. 
-    
-    TAREA:
-    1. Analiza si este texto del BOE tiene impacto directo en el sector retail/comercio
-    2. Si SÍ tiene impacto, haz un resumen completo del artículo
-    3. Si NO tiene impacto, no hagas resumen
-    
-    CRITERIOS DE IMPACTO RETAIL (considerar SI):
-    - Normativas de comercio, consumo, competencia
-    - Cambios fiscales que afecten empresas o consumidores
-    - Regulación laboral (salarios, jornadas, convenios) que afecte múltiples sectores
-    - Seguridad alimentaria, productos, etiquetado
-    - Medioambiente que afecte operaciones comerciales
-    - Subvenciones o ayudas a empresas
-    - Cambios en licencias, autorizaciones comerciales
-    - Transporte, logística, aduanas (impacto en cadena de suministro)
-    - Tecnología, comercio electrónico, protección de datos
-    - Precios regulados, servicios básicos que afecten costes operativos
-    - Infraestructura que afecte acceso a zonas comerciales
-    
-    NO CONSIDERAR COMO IMPACTO RETAIL (descartar):
-    - Nombramientos de funcionarios específicos
-    - Convenios muy específicos entre administraciones sin impacto comercial
-    - Normativa exclusivamente militar o defensa
-    - Procedimientos judiciales individuales
-    - Tipos de cambio rutinarios diarios
-    - Convocatorias de oposiciones
-    - Convenios de empresas mediáticas sin relevancia sectorial amplia
-    
-    Responde SOLO con este JSON:
-    {{
-        "impacto_retail": true/false,
-        "resumen": "Resumen completo y detallado del artículo explicando qué establece, a quién afecta, fechas importantes, cambios que introduce, etc."
-    }}
-    
-    Si impacto_retail es false, pon resumen como null.
-    
-    TEXTO:
-    {text}
-    """
-    
+Eres analista de regulación española. Analiza este texto y determina si tiene
+impacto en una COMPAÑÍA INTERNACIONAL DEL SECTOR TEXTIL RETAIL que opera en España y en otros países.
+
+Instrucciones:
+- Si NO hay impacto relevante → responde exactamente con la palabra NONE.
+- Si SÍ hay impacto → responde en JSON con este formato:
+{{
+  "impacto_retail": true,
+  "resumen": "explica de forma clara el texto, a quién afecta y fechas clave"
+}}
+
+Texto a analizar:
+{text}
+"""
     try:
-        resp = MODEL.generate_content(
-            prompt,
-            generation_config={"response_mime_type": "application/json"}
-        )
-        raw = _resp_text(resp)
-        result = json.loads(raw) if raw.strip().startswith("{") else _safe_parse_json(raw)
-        
-        # Validación: si no hay impacto, asegurar que resumen sea None
-        if not result.get("impacto_retail", False):
-            result["resumen"] = None
-            
-        return result
-        
+        resp = MODEL.generate_content(prompt)
+        raw = _clean_fences(_resp_text(resp))
+
+        if raw.strip().upper() == "NONE":
+            return {"impacto_retail": False, "resumen": None}
+
+        data = json.loads(raw)
+        return {
+            "impacto_retail": bool(data.get("impacto_retail", False)),
+            "resumen": data.get("resumen") if data.get("impacto_retail") else None,
+        }
     except Exception as e:
         print(f"Error en Gemini: {e}")
         return {"impacto_retail": False, "resumen": None}
 
-# Wrapper compatible con tu pipeline actual:
-def analyze_text(pdf_url: str) -> dict:
-    return analyze_text_with_gemini(extract_text_from_pdf(pdf_url))
+
+# --- Wrapper para pipeline ---
+def analyze_text(url: str) -> dict:
+    return analyze_text_with_gemini(extract_text(url))
