@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+scrapy
+pymysql
+python-dotenv
+PyMuPDF
+google-generativeai
