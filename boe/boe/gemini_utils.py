@@ -8,7 +8,7 @@ API_KEY = os.getenv("GOOGLE_API_KEY")
 if not API_KEY:
     raise RuntimeError("Falta GOOGLE_API_KEY en .env")
 genai.configure(api_key=API_KEY)
-MODEL = genai.GenerativeModel("gemini-1.5-flash")
+MODEL = genai.GenerativeModel("gemini-1.5-flash-latest")
 
 
 # --- Helpers ---
