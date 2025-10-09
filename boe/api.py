@@ -10,8 +10,8 @@ def run_scraper():
 
     command = [
         "scrapy", "crawl", "boe",
-        "-a", f"start_date={today}",
-        "-a", f"end_date={today}"
+        "-a", "start_date=2025-10-07",
+        "-a", "end_date=2025-10-07"
     ]
 
     result = run(command, capture_output=True, text=True, cwd="boe")
